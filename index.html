@@ -265,6 +265,7 @@ function initFirebase(){
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js" onload="initFirebase()"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 </head>
 <body>
 <header>
@@ -503,7 +504,7 @@ TIENDAS.forEach(function(t){corpus.push({type:"tienda",id:t.nombre,label:t.nombr
 PRODUTOS.forEach(function(p){corpus.push({type:"producto",id:p.nombre,label:p.nombre,meta:(p.linea+" "+p.cod+" "+p.tiendas.join(" ")).toLowerCase(),obj:p});});
 CADENAS.forEach(function(c){corpus.push({type:"cadena",id:c.nombre,label:c.nombre,meta:(c.tiendas.join(" ")+" "+c.ciudades.join(" ")).toLowerCase(),obj:c});});
 var currentFilter="all",currentQuery="",selectedId=null,selectedType=null;
-var itemIndex=[],chipIndex=[],tiendaIndex=[],innerAll=[];
+var itemIndex=[],chipIndex=[],tiendaIndex=[],innerAll=[],innerFiltered=[];
 
 function esc(s){return String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");}
 
@@ -541,9 +542,12 @@ function renderInner(){
     tiendaIndex.push(t.nombre);
     return "<div class='tienda-row' data-t='"+i+"'><div class='tienda-row-body'><div class='tienda-row-name'>"+esc(t.nombre)+"</div><div class='tienda-row-meta'>"+esc(t.cadena)+" &#183; "+esc(t.ciudad)+"</div></div>"+(t.link?"<a class='btn-maps' href='"+esc(t.link)+"' target='_blank' rel='noopener' onclick='event.stopPropagation()'>Maps</a>":"")+"</div>";
   }).join("");
+  innerFiltered=f;
+  updateExportBtnLabels();
 }
 function bindInner(tObjs){
   innerAll=tObjs;
+  innerFiltered=tObjs;
   var qi=document.getElementById("iq"),ci=document.getElementById("icity"),ca=document.getElementById("icad"),cl=document.getElementById("iclr");
   if(qi)qi.addEventListener("input",renderInner);
   if(ci)ci.addEventListener("change",renderInner);
@@ -972,8 +976,13 @@ function getExportData(){
     if(selectedType==="producto"){
       var p=pMap[selectedId];
       if(!p)return{tiendas:[],productos:[],cadenas:[],context:""};
-      var ts=p.tiendas.map(function(n){return tMap[n];}).filter(Boolean);
-      return{tiendas:ts,productos:[p],cadenas:[],context:p.nombre};
+      // Use filtered list if user applied inner search filters, otherwise all tiendas
+      var ts=innerFiltered.length>0&&innerFiltered.length<p.tiendas.length
+        ?innerFiltered
+        :p.tiendas.map(function(n){return tMap[n];}).filter(Boolean);
+      var suffix=innerFiltered.length>0&&innerFiltered.length<p.tiendas.length
+        ?" ("+innerFiltered.length+" tiendas filtradas)":"";
+      return{tiendas:ts,productos:[p],cadenas:[],context:p.nombre+suffix};
     }
   }
   // Nothing selected — export everything
@@ -984,7 +993,9 @@ function updateExportBtnLabels(){
   var label="Todo";
   if(selectedId && selectedType){
     var MAX=24;
-    label=selectedId.length>MAX?selectedId.slice(0,MAX)+"…":selectedId;
+    var base=selectedId.length>MAX?selectedId.slice(0,MAX)+"…":selectedId;
+    var isFiltered=innerFiltered.length>0&&selectedType==="producto"&&pMap[selectedId]&&innerFiltered.length<(pMap[selectedId].tiendas||[]).length;
+    label=isFiltered?base+" ("+innerFiltered.length+")":base;
   }
   var btnEx=document.querySelector(".export-btn-excel");
   var btnPdf=document.querySelector(".export-btn-pdf");
@@ -1018,33 +1029,44 @@ function exportExcel(){
     if(btn){var old=btn.innerHTML;btn.innerHTML="&#10003; Sin datos seleccionados";btn.style.background="#92400e";setTimeout(function(){btn.innerHTML=old;btn.style.background="";},2500);}
     return;
   }
-  var BOM="\uFEFF";
-  var header=["Nombre","Cadena","Ciudad","Dirección","Productos Codificados","Códigos","Link Maps"];
-  var NL=String.fromCharCode(10);
-  var rows=tiendas.map(function(t){
-    return [
-      t.nombre,t.cadena,t.ciudad,t.dir||"",
-      (t.productos||[]).length,
-      (t.productos||[]).map(function(cod){var p=codMap[cod];return p?p.nombre:cod;}).join(" | "),
-      t.link||""
-    ].map(function(v){return '"'+String(v).replace(/"/g,'""')+'"';}).join(",");
+  if(typeof XLSX==="undefined"){alert("Cargando Excel, intenta en un segundo.");return;}
+  var wb=XLSX.utils.book_new();
+  // ── Hoja 1: Tiendas ──
+  var tRows=tiendas.map(function(t){
+    return{
+      "Nombre":t.nombre,
+      "Cadena":t.cadena,
+      "Ciudad":t.ciudad,
+      "Dirección":t.dir||"",
+      "Productos Codificados":(t.productos||[]).length,
+      "Códigos":(t.productos||[]).map(function(cod){var p=codMap[cod];return p?p.nombre:cod;}).join(" | "),
+      "Link Maps":t.link||""
+    };
   });
-  var csv=BOM+header.join(",")+NL+rows.join(NL);
-  // Add productos section if available
+  var ws1=XLSX.utils.json_to_sheet(tRows);
+  // Column widths
+  ws1["!cols"]=[{wch:40},{wch:25},{wch:18},{wch:35},{wch:10},{wch:60},{wch:50}];
+  XLSX.utils.book_append_sheet(wb,ws1,"Tiendas");
+  // ── Hoja 2: Productos (if available) ──
   if(data.productos&&data.productos.length){
-    var ph=["","","","","","",""];
-    csv+=NL+NL+'"PRODUCTOS"'+NL+'"Nombre","Código","Línea","Variante","Presentación","# Tiendas","Tiendas"';
-    data.productos.forEach(function(p){
-      csv+=NL+[p.nombre,p.cod,p.linea,p.variante,p.presentacion,(p.tiendas||[]).length,(p.tiendas||[]).join(" | ")]
-        .map(function(v){return '"'+String(v||"").replace(/"/g,'""')+'"';}).join(",");
+    var pRows=data.productos.map(function(p){
+      return{
+        "Nombre":p.nombre,
+        "Código":p.cod,
+        "Línea":p.linea||"",
+        "Variante":p.variante||"",
+        "Presentación":p.presentacion||"",
+        "PVP":p.pvp||"",
+        "S/IVA":p.pvp_sin_iva||"",
+        "# Tiendas":(p.tiendas||[]).length
+      };
     });
+    var ws2=XLSX.utils.json_to_sheet(pRows);
+    ws2["!cols"]=[{wch:40},{wch:15},{wch:20},{wch:20},{wch:15},{wch:10},{wch:10},{wch:10}];
+    XLSX.utils.book_append_sheet(wb,ws2,"Productos");
   }
-  var blob=new Blob([csv],{type:"text/csv;charset=utf-8"});
-  var a=document.createElement("a");
-  var fname="tiendas_inzoul"+(data.context?"_"+data.context.replace(/[^a-z0-9]/gi,"_"):"")+"_"+new Date().toISOString().slice(0,10)+".csv";
-  a.href=URL.createObjectURL(blob);
-  a.download=fname;
-  document.body.appendChild(a);a.click();document.body.removeChild(a);
+  var fname="inzoul"+(data.context?"_"+data.context.replace(/[^a-z0-9]/gi,"_"):"")+"_"+new Date().toISOString().slice(0,10)+".xlsx";
+  XLSX.writeFile(wb,fname);
 }
 
 // ── EXPORT TO PDF ──────────────────────────────────────────────────────────
