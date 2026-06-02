@@ -1105,16 +1105,10 @@ function exportPDF(){
     w.document.write(html);
     w.document.close();
   } else {
-    // Fallback for mobile popup blockers: use blob URL
+    // Fallback for mobile popup blockers: open blob URL in same tab
     var blob=new Blob([html],{type:"text/html;charset=utf-8"});
-    var url=URL.createObjectURL(blob);
-    var a=document.createElement("a");
-    a.href=url;
-    a.target="_blank";
-    a.download="reporte_inzoul.html";
-    document.body.appendChild(a);
-    a.click();
-    setTimeout(function(){URL.revokeObjectURL(url);document.body.removeChild(a);},1000);
+    var blobUrl=URL.createObjectURL(blob);
+    window.location.href=blobUrl;
   }
 }
 
