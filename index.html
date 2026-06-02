@@ -1021,6 +1021,7 @@ function updateExportBtnLabels(){
   });
 }
 function exportExcel(){
+  console.log("EXPORT DEBUG selectedId="+selectedId+" selectedType="+selectedType+" innerAll="+innerAll.length+" innerFiltered="+innerFiltered.length);
   var data=getExportData();
   var tiendas=data.tiendas;
   if(!tiendas.length){
