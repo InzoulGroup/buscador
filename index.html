@@ -976,12 +976,11 @@ function getExportData(){
     if(selectedType==="producto"){
       var p=pMap[selectedId];
       if(!p)return{tiendas:[],productos:[],cadenas:[],context:""};
-      // Use filtered list if user applied inner search filters, otherwise all tiendas
-      var ts=innerFiltered.length>0&&innerFiltered.length<p.tiendas.length
-        ?innerFiltered
-        :p.tiendas.map(function(n){return tMap[n];}).filter(Boolean);
-      var suffix=innerFiltered.length>0&&innerFiltered.length<p.tiendas.length
-        ?" ("+innerFiltered.length+" tiendas filtradas)":"";
+      // Use filtered list if user applied inner search filters (compare vs innerAll), otherwise all tiendas
+      var allTs=p.tiendas.map(function(n){return tMap[n];}).filter(Boolean);
+      var isFiltered=innerFiltered.length>0&&innerFiltered.length<innerAll.length;
+      var ts=isFiltered?innerFiltered:allTs;
+      var suffix=isFiltered?" ("+innerFiltered.length+" tiendas filtradas)":"";
       return{tiendas:ts,productos:[p],cadenas:[],context:p.nombre+suffix};
     }
   }
